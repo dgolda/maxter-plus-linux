@@ -255,6 +255,8 @@ static int wheel_right_button = 7;
 void
 EvdevQueueKbdEvent(InputInfoPtr pInfo, struct input_event *ev, int value)
 {
+	xf86Msg(X_WARNING, "%s EvdevQueueKbdEvent %d %d\n", pInfo->name, ev->code, value);
+
     int code = ev->code + MIN_KEYCODE;
     static char warned[KEY_CNT];
     EventQueuePtr pQueue;
@@ -278,7 +280,7 @@ EvdevQueueKbdEvent(InputInfoPtr pInfo, struct input_event *ev, int value)
     {
         if (ev->code <= KEY_MAX && !warned[ev->code])
         {
-            xf86Msg(X_WARNING, "%s: unable to handle keycode %d\n",
+            xf86Msg(X_WARNING, "%s: unable to handle keycode>255: %d\n",
                     pInfo->name, ev->code);
             warned[ev->code] = 1;
         }
@@ -729,7 +731,19 @@ EvdevProcessSyncEvent(InputInfoPtr pInfo, struct input_event *ev)
     pEvdev->abs = 0;
     pEvdev->rel = 0;
 }
+static void
+EvdevProcessEvent(InputInfoPtr pInfo, struct input_event *ev);
 
+static void
+EvdevEmulateKey(InputInfoPtr pInfo, struct input_event *ev, int key, int state)
+{
+	xf86Msg(X_WARNING, "%s: mapping %d to %d\n", pInfo->name, ev->code, key);
+	ev->type = EV_KEY;
+	ev->code = key;
+	ev->value = state;
+	EvdevQueueKbdEvent(pInfo, ev, state);
+	//EvdevProcessEvent(pInfo, ev);
+}
 /**
  * Process the events from the device; nothing is actually posted to the server
  * until an EV_SYN event is received.
@@ -742,7 +756,76 @@ EvdevProcessEvent(InputInfoPtr pInfo, struct input_event *ev)
             EvdevProcessRelativeMotionEvent(pInfo, ev);
             break;
         case EV_ABS:
-            EvdevProcessAbsoluteMotionEvent(pInfo, ev);
+			if (ev->code == 41)
+			{
+				xf86Msg(X_WARNING, "%s: detected absolute 41 with value %d\n",
+				pInfo->name, ev->value);
+				switch (ev->value)
+				{
+					case 15: // MORE -> I
+						xf86Msg(X_WARNING, "MORE translating to I\n");
+						EvdevEmulateKey(pInfo, ev, KEY_I, 1); 
+						EvdevEmulateKey(pInfo, ev, KEY_I, 0); 
+						break;
+					case 40: // REC TV -> // <o mod="ctrl">Notification(MCEKeypress, Recorded TV, 3)</o>
+						xf86Msg(X_WARNING, "REC TV translating to Ctrl+O\n");
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTCTRL, 1); 
+						EvdevEmulateKey(pInfo, ev, KEY_O, 1);
+						EvdevEmulateKey(pInfo, ev, KEY_O, 0);
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTCTRL, 0);
+						break;
+					case 166: // GUIDE-> <g mod="ctrl">OSD</g>               <!-- MCE Guide -->
+						xf86Msg(X_WARNING, "GUIDE translating to Ctrl+G\n");
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTCTRL, 1); 
+						EvdevEmulateKey(pInfo, ev, KEY_G, 1);
+						EvdevEmulateKey(pInfo, ev, KEY_G, 0);
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTCTRL, 0);
+					case 37: // LIVE TV-> I//<t mod="ctrl">Notification(MCEKeypress, Live TV, 3)</t>
+						xf86Msg(X_WARNING, "LIVE TV translating to Ctrl+T\n");
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTCTRL, 1); 
+						EvdevEmulateKey(pInfo, ev, KEY_T, 1);
+						EvdevEmulateKey(pInfo, ev, KEY_T, 0);
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTCTRL, 0);
+						break;
+					//case 151: EvdevEmulateKey(pInfo, ev, KEY_I) // RED/RECORD -> I
+					case 13: // GREEN/MCE -> MENU
+						xf86Msg(X_WARNING, "GREEN/MCE translating to MENU\n");
+						EvdevEmulateKey(pInfo, ev, KEY_MENU, 1);
+						EvdevEmulateKey(pInfo, ev, KEY_MENU, 0);
+						break;
+					//case 153: EvdevEmulateKey(pInfo, ev, KEY_I) // YELLOW/STOP-> I
+					case 11: // BLUE/MENU-> I
+						xf86Msg(X_WARNING, "BLUE/MENU translating to C\n");
+						EvdevEmulateKey(pInfo, ev, KEY_C, 1);
+						EvdevEmulateKey(pInfo, ev, KEY_C, 0);
+						break;
+
+					case 100: // HELP
+						xf86Msg(X_WARNING, "HELP translating to M\n");
+						EvdevEmulateKey(pInfo, ev, KEY_M, 1);
+						EvdevEmulateKey(pInfo, ev, KEY_M, 0);
+						break;
+					case 164: // DVD MENU -> <m mod="ctrl,shift">Notification(MCEKeypress, DVD menu, 3)</m>
+						xf86Msg(X_WARNING, "DVD MENU translating to Ctrl+Shift+M\n");
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTCTRL, 1); 
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTSHIFT, 1); 
+						EvdevEmulateKey(pInfo, ev, KEY_M, 1);
+						EvdevEmulateKey(pInfo, ev, KEY_M, 0);
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTSHIFT, 0);
+						EvdevEmulateKey(pInfo, ev, KEY_LEFTCTRL, 0);
+						break;
+					case 99: // SIZE
+						xf86Msg(X_WARNING, "SIZE translating to I\n");
+						EvdevEmulateKey(pInfo, ev, KEY_I, 1); 
+						EvdevEmulateKey(pInfo, ev, KEY_I, 0);
+						break;
+					default: 
+						xf86Msg(X_WARNING, "%s: unhandled absolute 41 value %d\n",
+						pInfo->name, ev->value);
+			  }
+			}else {
+				EvdevProcessAbsoluteMotionEvent(pInfo, ev);
+			}
             break;
         case EV_KEY:
             EvdevProcessKeyEvent(pInfo, ev);
